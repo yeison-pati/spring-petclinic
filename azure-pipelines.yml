@@ -8,15 +8,29 @@ jobs:
 - job: Build
   displayName: Build Maven Project
   steps:
+  
+  # Paso 1: Instalar y configurar Java 25
+  - task: JavaToolInstaller@0
+    displayName: 'Use Java 25'
+    inputs:
+      versionSpec: '25' # Especifica la versión requerida por tu proyecto
+      jdkArchitectureOption: 'x64'
+      # Establece la variable JAVA_HOME para usar esta versión
+      jdkSourceOption: 'PreInstalled' 
+      
+  # Paso 2: Ejecutar Maven con la versión de Java correcta
   - task: Maven@4
     displayName: 'Maven Package'
     inputs:
       mavenPomFile: 'pom.xml'
+      
+  # Pasos siguientes (restan igual)
   - task: CopyFiles@2
     displayName: 'Copy Files to artifact staging directory'
     inputs:
       SourceFolder: '$(System.DefaultWorkingDirectory)'
       Contents: '**/target/*.?(war|jar)'
       TargetFolder: $(Build.ArtifactStagingDirectory)
+      
   - upload: $(Build.ArtifactStagingDirectory)
     artifact: drop
