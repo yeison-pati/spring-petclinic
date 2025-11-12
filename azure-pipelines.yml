@@ -5,26 +5,25 @@ pool:
   vmImage: ubuntu-latest
 
 jobs:  
-- job: Build
+- job: Build # <--- INICIO del Job de Compilación (CI)
   displayName: Build Maven Project
   steps:
   
-  # Paso 1: Instalar y configurar Java 25
+  # Paso 1: Instalar y configurar Java 25 (Corregido)
   - task: JavaToolInstaller@0
     displayName: 'Use Java 25'
     inputs:
-      versionSpec: '25' # Especifica la versión requerida por tu proyecto
+      versionSpec: '25'
       jdkArchitectureOption: 'x64'
-      # Establece la variable JAVA_HOME para usar esta versión
       jdkSourceOption: 'PreInstalled' 
       
-  # Paso 2: Ejecutar Maven con la versión de Java correcta
+  # Paso 2: Ejecutar Maven y compilar
   - task: Maven@4
     displayName: 'Maven Package'
     inputs:
       mavenPomFile: 'pom.xml'
       
-  # Pasos siguientes (restan igual)
+  # Paso 3: Copiar archivos
   - task: CopyFiles@2
     displayName: 'Copy Files to artifact staging directory'
     inputs:
@@ -32,5 +31,58 @@ jobs:
       Contents: '**/target/*.?(war|jar)'
       TargetFolder: $(Build.ArtifactStagingDirectory)
       
+  # Paso 4: Publicar el artefacto (drop)
   - upload: $(Build.ArtifactStagingDirectory)
     artifact: drop
+
+# ------------------------------------------------------------------------
+
+- deployment: VMDeploy #  (CD)
+  displayName: web
+  dependsOn: Build
+  condition: succeeded()
+  environment:
+    name: env2025 # MI ENV!
+    resourceType: VirtualMachine
+    
+  strategy:
+    rolling:
+      maxParallel: 1
+      preDeploy:
+        steps:
+        - download: current
+          artifact: drop
+        - script: echo initialize, cleanup, backup, install certs
+      deploy:
+        steps:
+        - task: Bash@3
+          displayName: Start Java app, check health, and stop
+          inputs:
+            targetType: 'inline'
+            script: |
+              JAR=$(ls $(Pipeline.Workspace)/drop/target/*.jar | head -n 1)
+              java -jar "$JAR" --server.port=8081 &
+              PID=$!
+              for i in {1..10}; do
+                if curl -sf http://localhost:8081/actuator/health; then
+                  echo "App is up!"
+                  break
+                else
+                  echo "Waiting for app to be healthy... ($i/10)"
+                  sleep 3
+                fi
+              done
+              kill $PID 2>/dev/null || echo "Process already exited"         
+      routeTraffic:
+        steps:
+        - script: echo routing traffic
+      postRouteTraffic:
+        steps:
+        - script: echo health check post-route traffic
+      on:
+        failure:
+          steps:
+          - script: echo Restore from backup! This is on failure
+        success:
+          steps:
+          - script: echo Notify! This is on success
